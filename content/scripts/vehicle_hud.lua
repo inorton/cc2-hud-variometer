@@ -26,6 +26,10 @@ g_alt_history = {}
 g_alt_sample_time = 0
 g_alt_avg = 0
 
+g_fuel_history = {}
+g_fuel_sample_time = 0
+g_fuel_burnrate = 0
+
 g_gun_funnel_history = {}
 g_gun_funnel_sample_time = 0
 
@@ -172,6 +176,8 @@ function update(screen_w, screen_h, tick_fraction, delta_time, local_peer_id, ve
         if g_is_connected then
             local attachment = vehicle:get_attachment(g_selected_attachment_index)
             local is_attachment_render_center = false
+
+            update_fuel_history(vehicle)
 
             if g_is_map_overlay == false then
                 if vehicle:get_attachment_count() > 1 and vehicle:get_definition_index() ~= e_game_object_type.chassis_carrier then
@@ -1180,7 +1186,9 @@ function render_attachment_hud_bomb(screen_w, screen_h, map_data, vehicle, attac
         for i = 1, #linked_attachments do
             local predicted_hit_pos = linked_attachments[i]:get_bomb_hit_position()
             local hit_pos_screen = update_world_to_screen(predicted_hit_pos)
-        
+
+            update_ui_line(g_vel_vector_x, g_vel_vector_y, hit_pos_screen:x(), hit_pos_screen:y(), color8(0, 255, 0, 255))
+
             update_ui_image_rot(hit_pos_screen:x(), hit_pos_screen:y(), atlas_icons.hud_impact_marker, color8(0, 255, 0, 255), 0)
         end
     end
@@ -1931,6 +1939,9 @@ function render_compass(pos, col)
     update_ui_text(pos:x() - 50, pos:y() + 12, string.format("%03.0f", display_heading), 100, 1, col, 0)
 end
 
+g_vel_vector_x = 0
+g_vel_vector_y = 0
+
 function render_artificial_horizion(screen_w, screen_h, pos, size, vehicle, col)
     update_ui_push_clip(pos:x() - size:x() / 2, pos:y() - size:y() / 2, size:x(), size:y())
 
@@ -1949,6 +1960,8 @@ function render_artificial_horizion(screen_w, screen_h, pos, size, vehicle, col)
         local projected_velocity = vec3(position:x() + velocity:x() * project_dist, position:y() + velocity:y() * project_dist, position:z() + velocity:z() * project_dist)
         local predicted_position = artificial_horizon_to_screen(screen_w, screen_h, pos, scale, update_world_to_screen(projected_velocity))
         update_ui_image_rot(predicted_position:x(), predicted_position:y(), atlas_icons.hud_horizon_cursor, col, 0)
+        g_vel_vector_x = predicted_position:x()
+        g_vel_vector_y = predicted_position:y()
     end
 
     local roll_pos_a = update_world_to_screen(vec3(position:x() + (forward_xz:x() + side_xz:x()) * project_dist, position:y(), position:z() + (forward_xz:z() + side_xz:z()) * project_dist))
@@ -2189,6 +2202,35 @@ function wrap_range(val, min, max)
 end
 
 function render_fuel_gauge(pos, height, vehicle, col)
+    local fuel_number_col = col
+    if vehicle:get_fuel_factor() < 0.5 then
+        fuel_number_col = color8(255, 255, 0, 255)
+    end
+    if vehicle:get_fuel_factor() < 0.25 then
+        fuel_number_col = color8(255, 0, 0, 255)
+    end
+
+    local fuel_count = vehicle:get_fuel_factor() * 1000
+    local fuel_per_min = g_fuel_burnrate * 1000 * 15 * 60
+    local mins_remaining = fuel_count / fuel_per_min
+    if mins_remaining < 300 then
+        update_ui_text(
+                pos:x() - 32,
+                pos:y() + 100,
+                string.format("%3.0f mins", mins_remaining),
+                200, 0, fuel_number_col, 0)
+
+    end
+    update_ui_text(
+            pos:x() - 38,
+            pos:y() + 90,
+            string.format("%2.1f %s", fuel_count / 10, "%"),
+            64, 0, fuel_number_col, 0)
+    update_ui_text(
+            pos:x() - 32,
+            pos:y() + 80,
+            string.format("%2.1f %s/m", fuel_per_min/10, "%"),
+            64, 0, col, 0)
     render_gauge(pos, height, vehicle:get_fuel_factor(), update_get_loc(e_loc.upp_fuel), iff(get_is_fuel_warning(vehicle), color8(255, 0, 0, 255), col))
 end
 
@@ -2264,6 +2306,49 @@ function update_alt_history(vehicle)
         g_alt_avg = alt_sum / count
     end
 end
+
+function update_fuel_history(vehicle)
+    -- inspired by the gun funnel updates
+    local tick = update_get_logic_tick()
+    local sample_interval_ticks = 1
+    local sample_history_ticks = 600
+
+    if tick - g_fuel_sample_time > sample_interval_ticks then
+        g_fuel_sample_time = tick
+        local sample_data = {
+            time = tick,
+            fuel = vehicle:get_fuel_factor()
+        }
+        g_fuel_history[tick] = sample_data
+    end
+
+    local highest = 0
+    local lowest = 1
+    local count = 0
+    -- limit the age of fuel samples
+    for k, v in pairs(g_fuel_history) do
+        local sample_life = tick - v.time
+
+        if sample_life > sample_history_ticks then
+            g_fuel_history[k] = nil
+        else
+            count = count + 1
+            if v.fuel > highest then
+                highest = v.fuel
+            end
+            if v.fuel < lowest then
+                lowest = v.fuel
+            end
+        end
+    end
+
+    if count > 1 then
+        g_fuel_burnrate = (highest - lowest) / count
+    end
+
+
+end
+
 
 function update_gun_funnel(tick_fraction, vehicle, side_dist, forward_dist)
     local sample_interval_ticks = 1
