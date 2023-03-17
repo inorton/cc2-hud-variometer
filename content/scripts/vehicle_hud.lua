@@ -1065,6 +1065,7 @@ function render_attachment_hud(screen_w, screen_h, map_data, tick_fraction, vehi
     or def == e_game_object_type.attachment_turret_battle_cannon
     or def == e_game_object_type.attachment_turret_carrier_main_gun
     or def == e_game_object_type.attachment_turret_droid
+    or def == e_game_object_type.attachment_turret_gimbal_30mm
     then
         is_render_center = render_attachment_hud_cannon(screen_w, screen_h, map_data, vehicle, attachment, def)
     elseif def == e_game_object_type.attachment_turret_artillery
@@ -2951,6 +2952,7 @@ function get_is_vision_show_target_distance(attachment_def)
         or attachment_def == e_game_object_type.attachment_turret_battle_cannon
         or attachment_def == e_game_object_type.attachment_turret_carrier_main_gun
         or attachment_def == e_game_object_type.attachment_turret_droid
+        or attachment_def == e_game_object_type.attachment_turret_gimbal_30mm
 end
 
 function get_is_vision_target_lock_behaviour(attachment_def)
@@ -3003,6 +3005,7 @@ function get_is_vision_reveal_targets(attachment_def)
         or attachment_def == e_game_object_type.attachment_turret_ciws
         or attachment_def == e_game_object_type.attachment_camera
         or attachment_def == e_game_object_type.attachment_turret_droid
+        or attachment_def == e_game_object_type.attachment_turret_gimbal_30mm
 end
 
 
