@@ -2010,7 +2010,7 @@ function render_altitude_meter(pos, altitude, col)
     )
 
     update_ui_text(pos:x(), pos:y() + 101, update_get_loc(e_loc.upp_alt), 200, 0, col, 0)
-    -- Variometer:render(pos, col)
+    Variometer:render(pos, col)
 
 end
 
@@ -3177,6 +3177,7 @@ end
 TimedHistory = {
     interval = 1,
     ttl = 0,
+    ticks_per_sec = 30, -- estimated
     last_tick = 0,
     data = {},
     mean = 0,
@@ -3188,7 +3189,7 @@ TimedHistory = {
     add_value = function(self, v)
         local pe, err = pcall(function() self._add_value(self, v) end)
         if pe then
-            update_ui_text(0, 40, "ok in _add_value()", 300, 0, color8(128, 255, 128, 255), 0)
+            -- update_ui_text(0, 40, "ok in _add_value()", 300, 0, color8(128, 255, 128, 255), 0)
         else
             update_ui_text(0, 50, string.format("err in _add_value() = %s", err), 300, 0, color8(255, 128, 128, 255), 0)
         end
@@ -3203,7 +3204,7 @@ TimedHistory = {
             local sample_count = 0
             -- trim off the oldest items
             for k, val in pairs(self.data) do
-                if tick - val.time > self.ttl then
+                if tick - val.time > (self.ttl * self.ticks_per_sec) then
                     self.data[k] = nil
                 end
                 sample_sum = sample_sum + val.value
@@ -3230,8 +3231,8 @@ function TimedHistory:new(o)
 end
 
 Variometer = {
-    alt = TimedHistory:new{ttl=30},
-    fuel = TimedHistory:new{ttl=600},
+    alt = TimedHistory:new{ttl=1},
+    fuel = TimedHistory:new{ttl=30},
 
     update = function(self, vehicle)
         self.alt:add_value(vehicle:get_altitude())
@@ -3239,14 +3240,21 @@ Variometer = {
     end,
 
     fuel_burnrate = function(self)
-        return (self.fuel.historic_max - self.fuel.historic_max) / fuel.sample_size
+        return (self.fuel.historic_max - self.fuel.historic_min) / (self.fuel.ttl * self.fuel.ticks_per_sec)
     end,
 
     render = function(self, pos, col)
-        -- render rate of climb
-        local ticks_per_sec = self.alt.sample_size -- estimate
+        local pe, err = pcall(function() self._render(self, pos, col) end)
+        if pe then
+            --
+        else
+            update_ui_text(0, 50, string.format("err in _render() = %s", err), 300, 0, color8(255, 128, 128, 255), 0)
+        end
+    end,
 
-        local d_alt = ticks_per_sec * (self.alt.last_value - self.alt.mean) / 15
+    _render = function(self, pos, col)
+        -- render rate of climb
+        local d_alt = self.alt.ticks_per_sec * (self.alt.last_value - self.alt.mean) / 15
 
         local d_alt_col = col
         local d_alt_bar_col = col
@@ -3298,7 +3306,7 @@ Variometer = {
                 pos:x() -10,
                 pos:y() + 50,
                 5, 2, col)
-        ----
+
         -- render fuel updates
         local fuel_number_col = col
         if self.fuel.last_value < 0.5 then
@@ -3309,25 +3317,24 @@ Variometer = {
         end
 
         local fuel_count = self.fuel.last_value * 1000
-        local fuel_per_min = self.fuel_burnrate() * 1000 * 15 * 60
+        local fuel_per_min = self:fuel_burnrate() * 1000 * 60
         local mins_remaining = fuel_count / fuel_per_min
-        if mins_remaining < 300 then
-            update_ui_text(
-                    pos:x() - 32,
-                    pos:y() + 100,
-                    string.format("%3.0f mins", mins_remaining),
-                    200, 0, fuel_number_col, 0)
 
-        end
         update_ui_text(
                 pos:x() - 38,
-                pos:y() + 90,
+                pos:y() + 140,
                 string.format("%2.1f %s", fuel_count / 10, "%"),
                 64, 0, fuel_number_col, 0)
         update_ui_text(
                 pos:x() - 32,
-                pos:y() + 80,
+                pos:y() + 150,
                 string.format("%2.1f %s/m", fuel_per_min/10, "%"),
                 64, 0, col, 0)
+        update_ui_text(
+                pos:x() - 32,
+                pos:y() + 160,
+                string.format("%3.0f mins", mins_remaining),
+                200, 0, fuel_number_col, 0)
+
     end,
 }
