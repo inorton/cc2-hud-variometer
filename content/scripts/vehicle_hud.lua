@@ -174,10 +174,9 @@ function update(screen_w, screen_h, tick_fraction, delta_time, local_peer_id, ve
 
     if vehicle:get() then
         if g_is_connected then
+            Variometer:update(vehicle)
             local attachment = vehicle:get_attachment(g_selected_attachment_index)
             local is_attachment_render_center = false
-
-            update_fuel_history(vehicle)
 
             if g_is_map_overlay == false then
                 if vehicle:get_attachment_count() > 1 and vehicle:get_definition_index() ~= e_game_object_type.chassis_carrier then
@@ -247,7 +246,6 @@ function update(screen_w, screen_h, tick_fraction, delta_time, local_peer_id, ve
                 or def == e_game_object_type.chassis_air_rotor_light 
                 or def == e_game_object_type.chassis_air_rotor_heavy 
                 then
-                    update_alt_history(vehicle)
                     render_flight_hud(screen_w, screen_h, is_render_center == false, vehicle)
                 end
 
@@ -1188,6 +1186,7 @@ function render_attachment_hud_bomb(screen_w, screen_h, map_data, vehicle, attac
             local predicted_hit_pos = linked_attachments[i]:get_bomb_hit_position()
             local hit_pos_screen = update_world_to_screen(predicted_hit_pos)
 
+            -- draw a line from our velocity vector to the CCIP point
             update_ui_line(g_vel_vector_x, g_vel_vector_y, hit_pos_screen:x(), hit_pos_screen:y(), color8(0, 255, 0, 255))
 
             update_ui_image_rot(hit_pos_screen:x(), hit_pos_screen:y(), atlas_icons.hud_impact_marker, color8(0, 255, 0, 255), 0)
@@ -1940,9 +1939,6 @@ function render_compass(pos, col)
     update_ui_text(pos:x() - 50, pos:y() + 12, string.format("%03.0f", display_heading), 100, 1, col, 0)
 end
 
-g_vel_vector_x = 0
-g_vel_vector_y = 0
-
 function render_artificial_horizion(screen_w, screen_h, pos, size, vehicle, col)
     update_ui_push_clip(pos:x() - size:x() / 2, pos:y() - size:y() / 2, size:x(), size:y())
 
@@ -1961,8 +1957,6 @@ function render_artificial_horizion(screen_w, screen_h, pos, size, vehicle, col)
         local projected_velocity = vec3(position:x() + velocity:x() * project_dist, position:y() + velocity:y() * project_dist, position:z() + velocity:z() * project_dist)
         local predicted_position = artificial_horizon_to_screen(screen_w, screen_h, pos, scale, update_world_to_screen(projected_velocity))
         update_ui_image_rot(predicted_position:x(), predicted_position:y(), atlas_icons.hud_horizon_cursor, col, 0)
-        g_vel_vector_x = predicted_position:x()
-        g_vel_vector_y = predicted_position:y()
     end
 
     local roll_pos_a = update_world_to_screen(vec3(position:x() + (forward_xz:x() + side_xz:x()) * project_dist, position:y(), position:z() + (forward_xz:z() + side_xz:z()) * project_dist))
@@ -2016,63 +2010,7 @@ function render_altitude_meter(pos, altitude, col)
     )
 
     update_ui_text(pos:x(), pos:y() + 101, update_get_loc(e_loc.upp_alt), 200, 0, col, 0)
-
-    -- render rate of climb
-    -- g_alt_avg is the average alt from the last 15 ticks,
-    local ticks_per_sec = 30 -- estimate
-
-    local d_alt = ticks_per_sec * (altitude - g_alt_avg) / 15
-
-    local d_alt_col = col
-    local d_alt_bar_col = col
-    local col_yellow = color8(255, 255, 0, 255)
-    local col_warn = color8(255, 64, 64, 255)
-    local col_stall = color8(64, 64, 255, 255)
-
-    if d_alt < 0 then
-        d_alt_col = col_yellow
-    end
-
-    update_ui_text(pos:x(), pos:y() + 110, string.format("%02.1f", d_alt), 200, 0, d_alt_col, 0)
-    -- clamp the bars
-    if d_alt > 51 then
-        d_alt = 51
-    end
-    if d_alt < -50 then
-        d_alt = -50
-    end
-
-    -- set warning colors
-    -- warn about terrain if < 5 sec before impact
-    if d_alt < 0 then
-        if (altitude + (d_alt * 5)) < 0 then
-            d_alt_bar_col = col_warn
-        end
-    end
-    -- warn about stall if < 5 sec before 2000
-    if d_alt > 0 then
-        if (altitude + (d_alt * 5)) > 2000 then
-            d_alt_bar_col = col_stall
-        end
-    end
-
-    -- render the variometer bars
-    if d_alt < 0 then
-        update_ui_rectangle(
-                pos:x() -8,
-                pos:y() + 52,
-                2, d_alt * -1, d_alt_bar_col)
-    else
-        update_ui_rectangle(
-                pos:x() -8,
-                pos:y() + 52 - (d_alt),
-                2, d_alt , d_alt_bar_col)
-    end
-    -- mid bar
-    update_ui_rectangle(
-            pos:x() -10,
-            pos:y() + 50,
-            5, 2, col)
+    -- Variometer:render(pos, col)
 
 end
 
@@ -2203,35 +2141,6 @@ function wrap_range(val, min, max)
 end
 
 function render_fuel_gauge(pos, height, vehicle, col)
-    local fuel_number_col = col
-    if vehicle:get_fuel_factor() < 0.5 then
-        fuel_number_col = color8(255, 255, 0, 255)
-    end
-    if vehicle:get_fuel_factor() < 0.25 then
-        fuel_number_col = color8(255, 0, 0, 255)
-    end
-
-    local fuel_count = vehicle:get_fuel_factor() * 1000
-    local fuel_per_min = g_fuel_burnrate * 1000 * 15 * 60
-    local mins_remaining = fuel_count / fuel_per_min
-    if mins_remaining < 300 then
-        update_ui_text(
-                pos:x() - 32,
-                pos:y() + 100,
-                string.format("%3.0f mins", mins_remaining),
-                200, 0, fuel_number_col, 0)
-
-    end
-    update_ui_text(
-            pos:x() - 38,
-            pos:y() + 90,
-            string.format("%2.1f %s", fuel_count / 10, "%"),
-            64, 0, fuel_number_col, 0)
-    update_ui_text(
-            pos:x() - 32,
-            pos:y() + 80,
-            string.format("%2.1f %s/m", fuel_per_min/10, "%"),
-            64, 0, col, 0)
     render_gauge(pos, height, vehicle:get_fuel_factor(), update_get_loc(e_loc.upp_fuel), iff(get_is_fuel_warning(vehicle), color8(255, 0, 0, 255), col))
 end
 
@@ -2273,83 +2182,6 @@ function get_gun_funnel_spawn_pos(tick_fraction, vehicle, side_dist, forward_dis
         vehicle_pos:z() + forward:z() * forward_dist + side:z() * side_dist
     )
 end
-
-function update_alt_history(vehicle)
-    -- inspired by the gun funnel updates
-    local tick = update_get_logic_tick()
-    local sample_interval_ticks = 1
-    local sample_history_ticks = 30
-
-    if tick - g_alt_sample_time > sample_interval_ticks then
-        g_alt_sample_time = tick
-        local altitude = vehicle:get_altitude()
-        local sample_data = {
-            time = tick,
-            alt = altitude
-        }
-        g_alt_history[tick] = sample_data
-    end
-
-    local count = 0
-    local alt_sum = 0
-    -- limit the age of altitude samples
-    for k, v in pairs(g_alt_history) do
-        local sample_life = tick - v.time
-
-        if sample_life > sample_history_ticks then
-           g_alt_history[k] = nil
-        else
-            count = count + 1
-            alt_sum = alt_sum + v.alt
-        end
-    end
-    if count > 0 then
-        g_alt_avg = alt_sum / count
-    end
-end
-
-function update_fuel_history(vehicle)
-    -- inspired by the gun funnel updates
-    local tick = update_get_logic_tick()
-    local sample_interval_ticks = 1
-    local sample_history_ticks = 600
-
-    if tick - g_fuel_sample_time > sample_interval_ticks then
-        g_fuel_sample_time = tick
-        local sample_data = {
-            time = tick,
-            fuel = vehicle:get_fuel_factor()
-        }
-        g_fuel_history[tick] = sample_data
-    end
-
-    local highest = 0
-    local lowest = 1
-    local count = 0
-    -- limit the age of fuel samples
-    for k, v in pairs(g_fuel_history) do
-        local sample_life = tick - v.time
-
-        if sample_life > sample_history_ticks then
-            g_fuel_history[k] = nil
-        else
-            count = count + 1
-            if v.fuel > highest then
-                highest = v.fuel
-            end
-            if v.fuel < lowest then
-                lowest = v.fuel
-            end
-        end
-    end
-
-    if count > 1 then
-        g_fuel_burnrate = (highest - lowest) / count
-    end
-
-
-end
-
 
 function update_gun_funnel(tick_fraction, vehicle, side_dist, forward_dist)
     local sample_interval_ticks = 1
@@ -3334,3 +3166,168 @@ end
 --         update_ui_text(x, y, "no metatable", 300, 0, color8(128, 128, 128, 255), 0)
 --     end
 -- end
+
+
+---
+-- HUD Variometer Mod
+---
+
+-- class to store arbitrary values with a max tick age
+-- this was inspired by the gun funnel history code but isn't related to it now
+TimedHistory = {
+    interval = 1,
+    ttl = 0,
+    last_tick = 0,
+    data = {},
+    mean = 0,
+    sample_size = 0,
+    historic_min = 0,
+    historic_max = 0,
+    last_value = 0,
+
+    add_value = function(self, v)
+        pe = pcall(function() self:_add_value(v) end)
+        if pe then
+            update_ui_text(0, 40, "ok in _add_value()", 300, 0, color8(128, 255, 128, 255), 0)
+        else
+            update_ui_text(0, 40, "err in _add_value()", 300, 0, color8(255, 128, 128, 255), 0)
+        end
+    end,
+    _add_value = function(self, v)
+        tick = update_get_logic_tick()
+        self.last_value = v
+        if tick - self.last_tick > self.interval then
+            self.data[tick] = { time = tick, value = v }
+            self.last_tick = tick
+            local sample_sum = 0
+            local sample_count = 0
+            -- trim off the oldest items
+            for k, val in pairs(self.data) do
+                if tick - val.time > self.ttl then
+                    self.data[k] = nil
+                end
+                sample_sum = sample_sum + val.value
+                sample_count = sample_count + 1
+                if val.value < self.historic_min then
+                    self.historic_min = val.value
+                end
+                if val.value > self.historic_max then
+                    self.historic_max = val.value
+                end
+            end
+            if sample_count > 0 then
+                self.mean = sample_sum / sample_count
+            end
+            self.sample_size = sample_count
+        end
+    end,
+}
+function TimedHistory:new(o)
+    o = o or {}
+    setmetatable(o, self)
+    self.__index = self
+    return o
+end
+
+Variometer = {
+    alt = TimedHistory:new{ttl=30},
+    fuel = TimedHistory:new{ttl=600},
+
+    update = function(self, vehicle)
+        self.alt:add_value(vehicle:get_altitude())
+        --self.fuel.add_value(vehicle:get_fuel_factor())
+    end,
+
+    fuel_burnrate = function(self)
+        return (self.fuel.historic_max - self.fuel.historic_max) / fuel.sample_size
+    end,
+
+    render = function(self, pos, col)
+        -- render rate of climb
+        local ticks_per_sec = self.alt.sample_size -- estimate
+
+        local d_alt = ticks_per_sec * (self.alt.last_value - self.alt.mean) / 15
+
+        local d_alt_col = col
+        local d_alt_bar_col = col
+        local col_yellow = color8(255, 255, 0, 255)
+        local col_warn = color8(255, 64, 64, 255)
+        local col_stall = color8(64, 64, 255, 255)
+
+        if d_alt < 0 then
+            d_alt_col = col_yellow
+        end
+
+        update_ui_text(pos:x(), pos:y() + 110, string.format("%02.1f", d_alt), 200, 0, d_alt_col, 0)
+        -- clamp the bars
+        if d_alt > 51 then
+            d_alt = 51
+        end
+        if d_alt < -50 then
+            d_alt = -50
+        end
+
+        -- set warning colors
+        -- warn about terrain if < 5 sec before impact
+        if d_alt < 0 then
+            if (self.alt.last_value + (d_alt * 5)) < 0 then
+                d_alt_bar_col = col_warn
+            end
+        end
+        -- warn about stall if < 5 sec before 2000
+        if d_alt > 0 then
+            if (self.alt.last_value + (d_alt * 5)) > 2000 then
+                d_alt_bar_col = col_stall
+            end
+        end
+
+        -- render the variometer bars
+        if d_alt < 0 then
+            update_ui_rectangle(
+                pos:x() -8,
+                pos:y() + 52,
+                2, d_alt * -1, d_alt_bar_col)
+        else
+            update_ui_rectangle(
+                pos:x() -8,
+                pos:y() + 52 - (d_alt),
+                2, d_alt , d_alt_bar_col)
+        end
+        -- mid bar
+        update_ui_rectangle(
+                pos:x() -10,
+                pos:y() + 50,
+                5, 2, col)
+        ----
+        -- render fuel updates
+        local fuel_number_col = col
+        if self.fuel.last_value < 0.5 then
+            fuel_number_col = color8(255, 255, 0, 255)
+        end
+        if self.fuel.last_value < 0.25 then
+            fuel_number_col = color8(255, 0, 0, 255)
+        end
+
+        local fuel_count = self.fuel.last_value * 1000
+        local fuel_per_min = self.fuel_burnrate() * 1000 * 15 * 60
+        local mins_remaining = fuel_count / fuel_per_min
+        if mins_remaining < 300 then
+            update_ui_text(
+                    pos:x() - 32,
+                    pos:y() + 100,
+                    string.format("%3.0f mins", mins_remaining),
+                    200, 0, fuel_number_col, 0)
+
+        end
+        update_ui_text(
+                pos:x() - 38,
+                pos:y() + 90,
+                string.format("%2.1f %s", fuel_count / 10, "%"),
+                64, 0, fuel_number_col, 0)
+        update_ui_text(
+                pos:x() - 32,
+                pos:y() + 80,
+                string.format("%2.1f %s/m", fuel_per_min/10, "%"),
+                64, 0, col, 0)
+    end,
+}
