@@ -3186,15 +3186,15 @@ TimedHistory = {
     last_value = 0,
 
     add_value = function(self, v)
-        pe = pcall(function() self:_add_value(v) end)
+        local pe, err = pcall(function() self._add_value(self, v) end)
         if pe then
             update_ui_text(0, 40, "ok in _add_value()", 300, 0, color8(128, 255, 128, 255), 0)
         else
-            update_ui_text(0, 40, "err in _add_value()", 300, 0, color8(255, 128, 128, 255), 0)
+            update_ui_text(0, 50, string.format("err in _add_value() = %s", err), 300, 0, color8(255, 128, 128, 255), 0)
         end
     end,
     _add_value = function(self, v)
-        tick = update_get_logic_tick()
+        local tick = update_get_logic_tick()
         self.last_value = v
         if tick - self.last_tick > self.interval then
             self.data[tick] = { time = tick, value = v }
@@ -3235,7 +3235,7 @@ Variometer = {
 
     update = function(self, vehicle)
         self.alt:add_value(vehicle:get_altitude())
-        --self.fuel.add_value(vehicle:get_fuel_factor())
+        self.fuel:add_value(vehicle:get_fuel_factor())
     end,
 
     fuel_burnrate = function(self)
