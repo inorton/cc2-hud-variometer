@@ -3175,6 +3175,7 @@ end
 -- class to store arbitrary values with a max tick age
 -- this was inspired by the gun funnel history code but isn't related to it now
 TimedHistory = {
+    ident = 0,
     interval = 1,
     ttl = 0,
     ticks_per_sec = 30, -- estimated
@@ -3182,8 +3183,8 @@ TimedHistory = {
     data = {},
     mean = 0,
     sample_size = 0,
-    historic_min = 0,
-    historic_max = 0,
+    sample_min = 20000,
+    sample_max = 0,
     last_value = 0,
 
     add_value = function(self, v)
@@ -3196,26 +3197,39 @@ TimedHistory = {
     end,
     _add_value = function(self, v)
         local tick = update_get_logic_tick()
+        local sample_sum = 0
+        local sample_count = 0
+        local xsample_min = 2000
+        local xsample_max = 0
         self.last_value = v
+        update_ui_text(10, 90 + 10 * self.ident, string.format("%d add_value() = %s", self.ident, v), 300, 0, color8(255, 128, 128, 255), 0)
+
         if tick - self.last_tick > self.interval then
-            self.data[tick] = { time = tick, value = v }
+            local sample = { time = tick, value = v }
+            self.data[tick] = sample
             self.last_tick = tick
-            local sample_sum = 0
-            local sample_count = 0
             -- trim off the oldest items
             for k, val in pairs(self.data) do
                 if tick - val.time > (self.ttl * self.ticks_per_sec) then
                     self.data[k] = nil
-                end
-                sample_sum = sample_sum + val.value
-                sample_count = sample_count + 1
-                if val.value < self.historic_min then
-                    self.historic_min = val.value
-                end
-                if val.value > self.historic_max then
-                    self.historic_max = val.value
+                else
+                    if val.value > 0 then
+                        sample_sum = sample_sum + val.value
+                        sample_count = sample_count + 1
+                        if val.value > xsample_max then
+                            xsample_max = val.value
+                        end
+                        if val.value < xsample_min then
+                            xsample_min = val.value
+                        end
+
+                    end
                 end
             end
+
+            self.sample_max = xsample_max
+            self.sample_min = xsample_min
+
             if sample_count > 0 then
                 self.mean = sample_sum / sample_count
             end
@@ -3230,17 +3244,19 @@ function TimedHistory:new(o)
     return o
 end
 
+VarTimedHistory = TimedHistory:new()
+
 Variometer = {
-    alt = TimedHistory:new{ttl=1},
-    fuel = TimedHistory:new{ttl=30},
+    alt = VarTimedHistory:new{ttl=1, ident=0},
+    fuel = VarTimedHistory:new{ttl=30, ident=1},
 
     update = function(self, vehicle)
-        self.alt:add_value(vehicle:get_altitude())
+        --self.alt:add_value(vehicle:get_altitude())
         self.fuel:add_value(vehicle:get_fuel_factor())
     end,
 
-    fuel_burnrate = function(self)
-        return (self.fuel.historic_max - self.fuel.historic_min) / (self.fuel.ttl * self.fuel.ticks_per_sec)
+    fuel_burnrate = function(self)  -- % per sec
+        return (self.fuel.sample_max - self.fuel.sample_min) / self.fuel.ticks_per_sec
     end,
 
     render = function(self, pos, col)
@@ -3254,7 +3270,7 @@ Variometer = {
 
     _render = function(self, pos, col)
         -- render rate of climb
-        local d_alt = self.alt.ticks_per_sec * (self.alt.last_value - self.alt.mean) / 15
+        local d_alt = self.alt.last_value - self.alt.mean -- m/s
 
         local d_alt_col = col
         local d_alt_bar_col = col
@@ -3265,8 +3281,8 @@ Variometer = {
         if d_alt < 0 then
             d_alt_col = col_yellow
         end
+        update_ui_text(pos:x(), pos:y() + 110, string.format("%2.0f~", d_alt), 200, 0, d_alt_col, 0)
 
-        update_ui_text(pos:x(), pos:y() + 110, string.format("%02.1f", d_alt), 200, 0, d_alt_col, 0)
         -- clamp the bars
         if d_alt > 51 then
             d_alt = 51
@@ -3316,20 +3332,23 @@ Variometer = {
             fuel_number_col = color8(255, 0, 0, 255)
         end
 
-        local fuel_count = self.fuel.last_value * 1000
-        local fuel_per_min = self:fuel_burnrate() * 1000 * 60
+        local fuel_count = self.fuel.last_value
+        local fuel_per_min = self:fuel_burnrate() * 60
         local mins_remaining = fuel_count / fuel_per_min
 
+        -- total %
         update_ui_text(
                 pos:x() - 38,
                 pos:y() + 140,
-                string.format("%2.1f %s", fuel_count / 10, "%"),
+                string.format("%2.1f %s", fuel_count * 100, "%"),
                 64, 0, fuel_number_col, 0)
+        -- % / min
         update_ui_text(
                 pos:x() - 32,
                 pos:y() + 150,
-                string.format("%2.1f %s/m", fuel_per_min/10, "%"),
+                string.format("%2.1f %s/m", fuel_per_min * 100, "%"),
                 64, 0, col, 0)
+        -- time
         update_ui_text(
                 pos:x() - 32,
                 pos:y() + 160,
