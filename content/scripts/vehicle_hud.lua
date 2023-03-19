@@ -22,14 +22,6 @@ g_weapon_list_factor = 0
 
 g_attachment_slot_size = vec2(18, 19)
 
-g_alt_history = {}
-g_alt_sample_time = 0
-g_alt_avg = 0
-
-g_fuel_history = {}
-g_fuel_sample_time = 0
-g_fuel_burnrate = 0
-
 g_gun_funnel_history = {}
 g_gun_funnel_sample_time = 0
 
@@ -3176,8 +3168,9 @@ end
 -- this was inspired by the gun funnel history code but isn't related to it now
 TimedHistory = {
     ident = 0,
+    debug = 0,
     interval = 1,
-    ttl = 0,
+    ttl = 30,
     ticks_per_sec = 30, -- estimated
     last_tick = 0,
     data = {},
@@ -3188,28 +3181,32 @@ TimedHistory = {
     last_value = 0,
 
     add_value = function(self, v)
-        local pe, err = pcall(function() self._add_value(self, v) end)
-        if pe then
-            -- update_ui_text(0, 40, "ok in _add_value()", 300, 0, color8(128, 255, 128, 255), 0)
-        else
-            update_ui_text(0, 50, string.format("err in _add_value() = %s", err), 300, 0, color8(255, 128, 128, 255), 0)
-        end
-    end,
-    _add_value = function(self, v)
         local tick = update_get_logic_tick()
         local sample_sum = 0
         local sample_count = 0
         local xsample_min = 2000
         local xsample_max = 0
         self.last_value = v
-        update_ui_text(10, 90 + 10 * self.ident, string.format("%d add_value() = %s", self.ident, v), 300, 0, color8(255, 128, 128, 255), 0)
-
+        if self.debug > 0 then
+            update_ui_text(
+                    10 + 180 * self.ident,
+                    30,
+                    string.format("%d mean() = %s", self.ident, self.mean),
+                    300, 0, color8(255, 128, 128, 255), 0)
+        end
         if tick - self.last_tick > self.interval then
             local sample = { time = tick, value = v }
             self.data[tick] = sample
             self.last_tick = tick
             -- trim off the oldest items
             for k, val in pairs(self.data) do
+                if self.debug > 0 then
+                    update_ui_text(
+                            10 + 180 * self.ident,
+                            50 + 10 * sample_count,
+                            string.format("%d value = %s", self.ident, val.value),
+                            300, 0, color8(255, 128, 128, 255), 0)
+                end
                 if tick - val.time > (self.ttl * self.ticks_per_sec) then
                     self.data[k] = nil
                 else
@@ -3247,11 +3244,20 @@ end
 VarTimedHistory = TimedHistory:new()
 
 Variometer = {
-    alt = VarTimedHistory:new{ttl=1, ident=0},
-    fuel = VarTimedHistory:new{ttl=30, ident=1},
+    alt = VarTimedHistory:new{ttl=1, ident=0, data={}},
+    fuel = VarTimedHistory:new{ttl=30, ident=1, data={}},
 
-    update = function(self, vehicle)
-        --self.alt:add_value(vehicle:get_altitude())
+    update = function(self, v)
+        local pe, err = pcall(function() self._update(self, v) end)
+        if pe then
+            --
+        else
+            update_ui_text(5, 40, string.format("err in _update() = %s", err), 300, 0, color8(255, 128, 128, 255), 0)
+        end
+    end,
+
+    _update = function(self, vehicle)
+        self.alt:add_value(vehicle:get_altitude())
         self.fuel:add_value(vehicle:get_fuel_factor())
     end,
 
@@ -3264,7 +3270,7 @@ Variometer = {
         if pe then
             --
         else
-            update_ui_text(0, 50, string.format("err in _render() = %s", err), 300, 0, color8(255, 128, 128, 255), 0)
+            update_ui_text(5, 50, string.format("err in _render() = %s", err), 300, 0, color8(255, 128, 128, 255), 0)
         end
     end,
 
@@ -3308,14 +3314,14 @@ Variometer = {
         -- render the variometer bars
         if d_alt < 0 then
             update_ui_rectangle(
-                pos:x() -8,
-                pos:y() + 52,
-                2, d_alt * -1, d_alt_bar_col)
+                    pos:x() -8,
+                    pos:y() + 52,
+                    2, d_alt * -1, d_alt_bar_col)
         else
             update_ui_rectangle(
-                pos:x() -8,
-                pos:y() + 52 - (d_alt),
-                2, d_alt , d_alt_bar_col)
+                    pos:x() -8,
+                    pos:y() + 52 - (d_alt),
+                    2, d_alt , d_alt_bar_col)
         end
         -- mid bar
         update_ui_rectangle(
@@ -3342,17 +3348,26 @@ Variometer = {
                 pos:y() + 140,
                 string.format("%2.1f %s", fuel_count * 100, "%"),
                 64, 0, fuel_number_col, 0)
+
+        -- only render fuel estimates when we have proper data
+        local fuel_use_per_min = "--- %/m"
+        local fuel_time_mins = "--- mins"
+
+        if self.fuel.sample_size > 30 then
+            fuel_use_per_min = string.format("%2.1f %s/m", fuel_per_min * 100, "%")
+            fuel_time_mins = string.format("%3.0f mins", mins_remaining)
+        end
         -- % / min
         update_ui_text(
                 pos:x() - 32,
                 pos:y() + 150,
-                string.format("%2.1f %s/m", fuel_per_min * 100, "%"),
+                fuel_use_per_min,
                 64, 0, col, 0)
         -- time
         update_ui_text(
                 pos:x() - 32,
                 pos:y() + 160,
-                string.format("%3.0f mins", mins_remaining),
+                fuel_time_mins,
                 200, 0, fuel_number_col, 0)
 
     end,
