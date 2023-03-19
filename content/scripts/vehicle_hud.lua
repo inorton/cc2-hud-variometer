@@ -1179,8 +1179,13 @@ function render_attachment_hud_bomb(screen_w, screen_h, map_data, vehicle, attac
             local hit_pos_screen = update_world_to_screen(predicted_hit_pos)
 
             -- draw a line from our velocity vector to the CCIP point
-            update_ui_line(g_vel_vector_x, g_vel_vector_y, hit_pos_screen:x(), hit_pos_screen:y(), color8(0, 255, 0, 255))
-
+            update_ui_line(
+                    Variometer.predicted_vector.x,
+                    Variometer.predicted_vector.y,
+                    hit_pos_screen:x(),
+                    hit_pos_screen:y(),
+                    color8(0, 255, 0, 255))
+            
             update_ui_image_rot(hit_pos_screen:x(), hit_pos_screen:y(), atlas_icons.hud_impact_marker, color8(0, 255, 0, 255), 0)
         end
     end
@@ -1949,6 +1954,8 @@ function render_artificial_horizion(screen_w, screen_h, pos, size, vehicle, col)
         local projected_velocity = vec3(position:x() + velocity:x() * project_dist, position:y() + velocity:y() * project_dist, position:z() + velocity:z() * project_dist)
         local predicted_position = artificial_horizon_to_screen(screen_w, screen_h, pos, scale, update_world_to_screen(projected_velocity))
         update_ui_image_rot(predicted_position:x(), predicted_position:y(), atlas_icons.hud_horizon_cursor, col, 0)
+        Variometer.predicted_vector.x = predicted_position:x()
+        Variometer.predicted_vector.y = predicted_position:y()
     end
 
     local roll_pos_a = update_world_to_screen(vec3(position:x() + (forward_xz:x() + side_xz:x()) * project_dist, position:y(), position:z() + (forward_xz:z() + side_xz:z()) * project_dist))
@@ -3246,6 +3253,7 @@ VarTimedHistory = TimedHistory:new()
 Variometer = {
     alt = VarTimedHistory:new{ttl=1, ident=0, data={}},
     fuel = VarTimedHistory:new{ttl=30, ident=1, data={}},
+    predicted_vector = {x=0, y=0},
 
     update = function(self, v)
         local pe, err = pcall(function() self._update(self, v) end)
